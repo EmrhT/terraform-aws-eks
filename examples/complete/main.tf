@@ -14,6 +14,7 @@ provider "kubernetes" {
   }
 }
 
+
 data "aws_availability_zones" "available" {}
 data "aws_caller_identity" "current" {}
 
@@ -116,48 +117,10 @@ module "eks" {
     }
   }
 
-  # Self Managed Node Group(s)
-  self_managed_node_group_defaults = {
-    vpc_security_group_ids = [aws_security_group.additional.id]
-    iam_role_additional_policies = {
-      additional = aws_iam_policy.additional.arn
-    }
-
-    instance_refresh = {
-      strategy = "Rolling"
-      preferences = {
-        min_healthy_percentage = 66
-      }
-    }
-  }
-
-  self_managed_node_groups = {
-    spot = {
-      instance_type = "m5.large"
-      instance_market_options = {
-        market_type = "spot"
-      }
-
-      pre_bootstrap_user_data = <<-EOT
-        echo "foo"
-        export FOO=bar
-      EOT
-
-      bootstrap_extra_args = "--kubelet-extra-args '--node-labels=node.kubernetes.io/lifecycle=spot'"
-
-      post_bootstrap_user_data = <<-EOT
-        cd /tmp
-        sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
-        sudo systemctl enable amazon-ssm-agent
-        sudo systemctl start amazon-ssm-agent
-      EOT
-    }
-  }
-
   # EKS Managed Node Group(s)
   eks_managed_node_group_defaults = {
     ami_type       = "AL2_x86_64"
-    instance_types = ["m6i.large", "m5.large", "m5n.large", "m5zn.large"]
+    instance_types = ["t3.small"]
 
     attach_cluster_primary_security_group = true
     vpc_security_group_ids                = [aws_security_group.additional.id]
@@ -173,7 +136,7 @@ module "eks" {
       max_size     = 10
       desired_size = 1
 
-      instance_types = ["t3.large"]
+      instance_types = ["t3.small"]
       capacity_type  = "SPOT"
       labels = {
         Environment = "test"
@@ -240,7 +203,6 @@ module "eks" {
 
   aws_auth_node_iam_role_arns_non_windows = [
     module.eks_managed_node_group.iam_role_arn,
-    module.self_managed_node_group.iam_role_arn,
   ]
   aws_auth_fargate_profile_pod_execution_role_arns = [
     module.fargate_profile.fargate_profile_pod_execution_role_arn
@@ -249,14 +211,6 @@ module "eks" {
   aws_auth_roles = [
     {
       rolearn  = module.eks_managed_node_group.iam_role_arn
-      username = "system:node:{{EC2PrivateDNSName}}"
-      groups = [
-        "system:bootstrappers",
-        "system:nodes",
-      ]
-    },
-    {
-      rolearn  = module.self_managed_node_group.iam_role_arn
       username = "system:node:{{EC2PrivateDNSName}}"
       groups = [
         "system:bootstrappers",
@@ -306,6 +260,9 @@ module "eks_managed_node_group" {
   cluster_name    = module.eks.cluster_name
   cluster_version = module.eks.cluster_version
 
+  instance_types = ["t3.small"]
+  capacity_type  = "SPOT"
+
   subnet_ids                        = module.vpc.private_subnets
   cluster_primary_security_group_id = module.eks.cluster_primary_security_group_id
   vpc_security_group_ids = [
@@ -327,26 +284,6 @@ module "eks_managed_node_group" {
   EOT
 
   tags = merge(local.tags, { Separate = "eks-managed-node-group" })
-}
-
-module "self_managed_node_group" {
-  source = "../../modules/self-managed-node-group"
-
-  name                = "separate-self-mng"
-  cluster_name        = module.eks.cluster_name
-  cluster_version     = module.eks.cluster_version
-  cluster_endpoint    = module.eks.cluster_endpoint
-  cluster_auth_base64 = module.eks.cluster_certificate_authority_data
-
-  instance_type = "m5.large"
-
-  subnet_ids = module.vpc.private_subnets
-  vpc_security_group_ids = [
-    module.eks.cluster_primary_security_group_id,
-    module.eks.cluster_security_group_id,
-  ]
-
-  tags = merge(local.tags, { Separate = "self-managed-node-group" })
 }
 
 module "fargate_profile" {
