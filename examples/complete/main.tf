@@ -37,9 +37,8 @@ locals {
 ################################################################################
 
 module "eks" {
-  source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.0"
-  
+  source = "../.."
+
   cluster_name                   = local.name
   cluster_endpoint_public_access = true
 
@@ -137,7 +136,7 @@ module "eks" {
       max_size     = 10
       desired_size = 1
 
-      instance_types = ["t3.medium"]
+      instance_types = ["t3.small"]
       capacity_type  = "SPOT"
       labels = {
         Environment = "test"
